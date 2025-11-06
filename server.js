@@ -269,6 +269,130 @@ app.post('/api/upload', upload.single('image'), async (req, res) => {
   }
 });
 
+// Admin UI (placed before slug route so '/admin' is not captured by '/:slug')
+app.get('/admin', (req, res) => {
+  res.type('html').send(`<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Admin</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<style>
+body { font-family: system-ui, Arial; margin: 1rem; }
+.container { max-width: 960px; margin: 0 auto; }
+.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+.card { border: 1px solid #ddd; border-radius: 8px; padding: 1rem; }
+table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+th, td { border-bottom: 1px solid #eee; padding: .5rem; text-align: left; }
+.map { height: 320px; }
+.hidden { display:none; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>Admin</h1>
+  <div class="grid">
+    <div class="card">
+      <h3>Create Link</h3>
+      <input id="title" placeholder="Optional title" />
+      <button id="newLink">Generate Link</button>
+      <p id="linkOut"></p>
+      <form id="uploadForm" class="hidden">
+        <h4>Upload Image</h4>
+        <input type="file" id="image" accept="image/png,image/jpeg" />
+        <button type="submit">Upload</button>
+        <p id="imgStatus"></p>
+      </form>
+    </div>
+    <div class="card">
+      <h3>Events</h3>
+      <input id="slugIn" placeholder="slug" />
+      <button id="loadEvents">Load</button>
+      <div id="counts"></div>
+      <div id="map" class="map"></div>
+      <table>
+        <thead><tr>
+          <th>Time</th><th>IP</th><th>Provider</th><th>Country</th><th>Device</th><th>Type</th><th>Bot</th><th>Ref</th><th>Lat</th><th>Lon</th><th>Acc(m)</th>
+        </tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+let currentSlug = null;
+let map, markers = [];
+
+document.getElementById('newLink').onclick = async () => {
+  const r = await fetch('/api/links', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ title: document.getElementById('title').value || null }) });
+  const j = await r.json();
+  currentSlug = j.slug;
+  document.getElementById('linkOut').innerHTML = 'Slug: <b>' + j.slug + '</b><br>Share this URL: <a href="' + j.url + '" target="_blank">' + j.url + '</a>';
+  const f = document.getElementById('uploadForm');
+  f.classList.remove('hidden');
+  f.onsubmit = async (e) => {
+    e.preventDefault();
+    const fd = new FormData();
+    fd.append('slug', currentSlug);
+    const file = document.getElementById('image').files[0];
+    if (!file) return;
+    fd.append('image', file);
+    const up = await fetch('/api/upload', { method: 'POST', body: fd });
+    const uj = await up.json();
+    document.getElementById('imgStatus').textContent = uj.ok ? 'Uploaded.' : (uj.error || 'Failed');
+  };
+};
+
+document.getElementById('loadEvents').onclick = async () => {
+  const slug = document.getElementById('slugIn').value.trim();
+  if (!slug) return;
+  currentSlug = slug;
+  const r = await fetch('/api/events?slug=' + encodeURIComponent(slug));
+  const j = await r.json();
+  const tbody = document.getElementById('rows');
+  tbody.innerHTML = '';
+  j.rows.forEach(ev => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = '<td>' + new Date(ev.occurred_at).toLocaleString() + '</td>' +
+      '<td>' + (ev.ip || '') + '</td>' +
+      '<td>' + (ev.ip_asn || '') + '</td>' +
+      '<td>' + (ev.country || '') + '</td>' +
+      '<td>' + [ev.device_family, ev.os_family, ev.browser_family].filter(Boolean).join(' / ') + '</td>' +
+      '<td>' + ev.type + '</td>' +
+      '<td>' + (ev.is_bot ? 'yes' : 'no') + '</td>' +
+      '<td>' + (ev.referer || '') + '</td>' +
+      '<td>' + (ev.latitude ?? '') + '</td>' +
+      '<td>' + (ev.longitude ?? '') + '</td>' +
+      '<td>' + (ev.accuracy_m ?? '') + '</td>';
+    tbody.appendChild(tr);
+  });
+  document.getElementById('counts').textContent = 'Total events: ' + j.rows.length;
+
+  const mapEl = document.getElementById('map');
+  if (!map) {
+    map = L.map('map').setView([0,0], 2);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
+  }
+  markers.forEach(m => m.remove());
+  markers = [];
+  const withLoc = j.rows.filter(r => r.latitude && r.longitude);
+  if (withLoc.length) {
+    const bounds = [];
+    withLoc.forEach(rw => {
+      const m = L.marker([rw.latitude, rw.longitude]).addTo(map).bindPopup(new Date(rw.occurred_at).toLocaleString());
+      markers.push(m);
+      bounds.push([rw.latitude, rw.longitude]);
+    });
+    map.fitBounds(bounds, { padding: [20,20] });
+  }
+};
+</script>
+</body>
+</html>`);
+});
+
 // Viewer page: show image and ask for location consent
 app.get('/:slug', async (req, res) => {
   try {
@@ -400,129 +524,7 @@ app.post('/api/collect/location', async (req, res) => {
   res.sendStatus(204);
 });
 
-// Admin UI
-app.get('/admin', (req, res) => {
-  res.type('html').send(`<!doctype html>
-<html>
-<head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>Admin</title>
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-<style>
-body { font-family: system-ui, Arial; margin: 1rem; }
-.container { max-width: 960px; margin: 0 auto; }
-.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
-.card { border: 1px solid #ddd; border-radius: 8px; padding: 1rem; }
-table { width: 100%; border-collapse: collapse; font-size: .9rem; }
-th, td { border-bottom: 1px solid #eee; padding: .5rem; text-align: left; }
-.map { height: 320px; }
-.hidden { display:none; }
-</style>
-</head>
-<body>
-<div class="container">
-  <h1>Admin</h1>
-  <div class="grid">
-    <div class="card">
-      <h3>Create Link</h3>
-      <input id="title" placeholder="Optional title" />
-      <button id="newLink">Generate Link</button>
-      <p id="linkOut"></p>
-      <form id="uploadForm" class="hidden">
-        <h4>Upload Image</h4>
-        <input type="file" id="image" accept="image/png,image/jpeg" />
-        <button type="submit">Upload</button>
-        <p id="imgStatus"></p>
-      </form>
-    </div>
-    <div class="card">
-      <h3>Events</h3>
-      <input id="slugIn" placeholder="slug" />
-      <button id="loadEvents">Load</button>
-      <div id="counts"></div>
-      <div id="map" class="map"></div>
-      <table>
-        <thead><tr>
-          <th>Time</th><th>IP</th><th>Provider</th><th>Country</th><th>Device</th><th>Type</th><th>Bot</th><th>Ref</th><th>Lat</th><th>Lon</th><th>Acc(m)</th>
-        </tr></thead>
-        <tbody id="rows"></tbody>
-      </table>
-    </div>
-  </div>
-</div>
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script>
-let currentSlug = null;
-let map, markers = [];
-
-document.getElementById('newLink').onclick = async () => {
-  const r = await fetch('/api/links', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ title: document.getElementById('title').value || null }) });
-  const j = await r.json();
-  currentSlug = j.slug;
-  document.getElementById('linkOut').innerHTML = 'Slug: <b>' + j.slug + '</b><br>Share this URL: <a href="' + j.url + '" target="_blank">' + j.url + '</a>';
-  const f = document.getElementById('uploadForm');
-  f.classList.remove('hidden');
-  f.onsubmit = async (e) => {
-    e.preventDefault();
-    const fd = new FormData();
-    fd.append('slug', currentSlug);
-    const file = document.getElementById('image').files[0];
-    if (!file) return;
-    fd.append('image', file);
-    const up = await fetch('/api/upload', { method: 'POST', body: fd });
-    const uj = await up.json();
-    document.getElementById('imgStatus').textContent = uj.ok ? 'Uploaded.' : (uj.error || 'Failed');
-  };
-};
-
-document.getElementById('loadEvents').onclick = async () => {
-  const slug = document.getElementById('slugIn').value.trim();
-  if (!slug) return;
-  currentSlug = slug;
-  const r = await fetch('/api/events?slug=' + encodeURIComponent(slug));
-  const j = await r.json();
-  const tbody = document.getElementById('rows');
-  tbody.innerHTML = '';
-  j.rows.forEach(ev => {
-    const tr = document.createElement('tr');
-    tr.innerHTML = '<td>' + new Date(ev.occurred_at).toLocaleString() + '</td>' +
-      '<td>' + (ev.ip || '') + '</td>' +
-      '<td>' + (ev.ip_asn || '') + '</td>' +
-      '<td>' + (ev.country || '') + '</td>' +
-      '<td>' + [ev.device_family, ev.os_family, ev.browser_family].filter(Boolean).join(' / ') + '</td>' +
-      '<td>' + ev.type + '</td>' +
-      '<td>' + (ev.is_bot ? 'yes' : 'no') + '</td>' +
-      '<td>' + (ev.referer || '') + '</td>' +
-      '<td>' + (ev.latitude ?? '') + '</td>' +
-      '<td>' + (ev.longitude ?? '') + '</td>' +
-      '<td>' + (ev.accuracy_m ?? '') + '</td>';
-    tbody.appendChild(tr);
-  });
-  document.getElementById('counts').textContent = 'Total events: ' + j.rows.length;
-
-  const mapEl = document.getElementById('map');
-  if (!map) {
-    map = L.map('map').setView([0,0], 2);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
-  }
-  markers.forEach(m => m.remove());
-  markers = [];
-  const withLoc = j.rows.filter(r => r.latitude && r.longitude);
-  if (withLoc.length) {
-    const bounds = [];
-    withLoc.forEach(rw => {
-      const m = L.marker([rw.latitude, rw.longitude]).addTo(map).bindPopup(new Date(rw.occurred_at).toLocaleString());
-      markers.push(m);
-      bounds.push([rw.latitude, rw.longitude]);
-    });
-    map.fitBounds(bounds, { padding: [20,20] });
-  }
-};
-</script>
-</body>
-</html>`);
-});
+// (old admin route removed; handled earlier)
 
 // Events API
 app.get('/api/events', async (req, res) => {

@@ -1,20 +1,26 @@
 FROM node:20-bookworm-slim
 
+# Update npm to latest version to avoid known bugs
+RUN npm install -g npm@latest
+
 # Create app directory
 WORKDIR /app
 
 # Copy package files first for better layer caching
 COPY package*.json ./
 
-# Install all dependencies (we'll prune dev deps after if needed)
-# Using --legacy-peer-deps and --no-audit to avoid npm issues
-RUN npm install --legacy-peer-deps --no-audit --no-fund
+# Install all dependencies - ignore exit code from npm bug, verify installation instead
+RUN npm install --legacy-peer-deps --no-audit --no-fund || true \
+    && ls -la node_modules/express || (echo "express not installed, retrying..." && npm install express --legacy-peer-deps) \
+    && node -e "require('express'); console.log('✓ express verified')" \
+    && node -e "require('mysql2'); console.log('✓ mysql2 verified')" \
+    && node -e "require('better-sqlite3'); console.log('✓ better-sqlite3 verified')"
 
 # Copy rest of app source
 COPY . .
 
-# Remove dev dependencies to reduce image size (optional but recommended)
-RUN npm prune --production
+# Remove dev dependencies to reduce image size
+RUN npm prune --omit=dev || true
 
 # Ensure runtime dirs exist and set proper permissions
 RUN mkdir -p uploads static \

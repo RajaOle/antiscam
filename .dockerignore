@@ -1,0 +1,16 @@
+node_modules
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-store
+.git
+.gitignore
+.env
+env.env
+uploads
+*.sqlite
+*.db
+*.db-journal
+*.log
+**/.DS_Store
+

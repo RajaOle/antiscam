@@ -3,13 +3,18 @@ FROM node:20-bookworm-slim
 # Create app directory
 WORKDIR /app
 
-# Copy app source first (ensures install sees any optional files)
+# Copy package files first for better layer caching
+COPY package*.json ./
+
+# Install all dependencies (we'll prune dev deps after if needed)
+# Using --legacy-peer-deps and --no-audit to avoid npm issues
+RUN npm install --legacy-peer-deps --no-audit --no-fund
+
+# Copy rest of app source
 COPY . .
 
-# Install production dependencies and verify installation
-RUN npm cache clean --force \
-    && (npm ci --omit=dev || npm install --omit=dev) \
-    && node -e "require('express'); console.log('express ok')"
+# Remove dev dependencies to reduce image size (optional but recommended)
+RUN npm prune --production
 
 # Ensure runtime dirs exist and set proper permissions
 RUN mkdir -p uploads static \

@@ -1,0 +1,20 @@
+{
+  "name": "receipt-tracker-mysql",
+  "private": true,
+  "type": "commonjs",
+  "version": "1.0.0",
+  "description": "Consent-based receipt tracker with image viewer, link generator, MySQL storage, and admin UI",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.10.0",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "isbot": "^5.1.2",
+    "multer": "^1.4.5-lts.1",
+    "mysql2": "^3.10.0",
+    "node-fetch": "^2.7.0",
+    "ua-parser-js": "^1.0.37"
+  }
+}

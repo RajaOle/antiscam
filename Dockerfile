@@ -3,12 +3,13 @@ FROM node:20-bookworm-slim
 # Create app directory
 WORKDIR /app
 
-# Install dependencies first (leverage Docker layer cache)
-COPY package*.json ./
-RUN npm install --production
-
-# Copy app source
+# Copy app source first (ensures install sees any optional files)
 COPY . .
+
+# Install production dependencies and verify installation
+RUN npm cache clean --force \
+    && (npm ci --omit=dev || npm install --omit=dev) \
+    && node -e "require('express'); console.log('express ok')"
 
 # Ensure runtime dirs exist and set proper permissions
 RUN mkdir -p uploads static \
